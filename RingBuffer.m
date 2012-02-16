@@ -100,6 +100,10 @@ classdef RingBuffer < handle
             obj.head = obj.getRelativeIdx(idxStore(end), 2);
         end
 
+        function addBehindTail(obj, data)
+            error('Not yet implemented!');
+        end
+
         function flush(obj)
             % flush() - completely empty this buffer
             obj.buffer = [];
