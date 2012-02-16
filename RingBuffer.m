@@ -116,8 +116,8 @@ classdef RingBuffer < handle
             data = obj.peekFromIdx(obj.tail, nElements);
         end
 
-        function data = popFromTail(obj, nElements)
-            % data = popFromTail(nElements)
+        function data = removeFromTail(obj, nElements)
+            % data = removeFromTail(nElements)
             % returns and removes nElements from the tail forwards in FIFO order
             if ~exist('nElements', 'var')
                 % this allows cell values to be unwrapped
@@ -125,6 +125,10 @@ classdef RingBuffer < handle
                 nElements = 1;
             else
                 data = obj.peekFromTail(nElements);
+            end
+
+            if nElements == 0
+                return;
             end
 
             % wipe that region
@@ -160,6 +164,10 @@ classdef RingBuffer < handle
                 data = obj.peekBackwardsFromHead(nElements);
             end
 
+            if nElements == 0
+                return;
+            end
+            
             % wipe that region
             idx = obj.getRelativeIdx(obj.head, 0:-1:-nElements+1);
             obj.wipeRegion(idx);
@@ -197,7 +205,7 @@ classdef RingBuffer < handle
                 if ~isempty(obj.buffer)
                     if ~isequal(class(data), class(obj.buffer))
                         msg = sprintf('New data must match the class() of existing data [ %s ]', ...
-                            class(obj.buffer));
+                            obj.dataClass);
                         tf = false;
                         return;
                     end
@@ -277,17 +285,21 @@ classdef RingBuffer < handle
             % if the user specifies nElements, return an array or cell array of
             % that size. If not specified return 1 element by default, and do not
             % wrap that element in a cell array.
-           
-            if obj.count == 0
-                error('Buffer is empty');
-            end
-
             unwrapFromCell = false;
             if ~exist('nElements', 'var') || isempty(nElements)
                 nElements = 1;
                 unwrapFromCell = obj.useCellArray;
             end
+
+            if nElements == 0
+                data = [];
+                return;
+            end
             
+            if obj.count == 0
+                error('Buffer is empty');
+            end
+
             idx = obj.getRelativeIdx(ref, 1:nElements);
             assert(obj.isRangeWithinData(idx), ...
                 'Specified range does not lie entirely within stored data');
