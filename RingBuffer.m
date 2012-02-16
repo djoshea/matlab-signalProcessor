@@ -9,7 +9,8 @@ classdef RingBuffer < handle
         tail % tail points to the idx for the oldest data element already added
     end
 
-    properties (Dependent)
+    properties (Dependent, SetAccess=protected)
+        dataClass
         count
         free
     end
@@ -27,6 +28,23 @@ classdef RingBuffer < handle
         function val = get.free(obj)
             val = obj.capacity - obj.count;
         end
+
+        function str = get.dataClass(obj)
+            if obj.useCellArray
+                str = 'cell';
+            elseif isempty(obj.buffer)
+                str = 'unknown';
+            elseif isstruct(obj.buffer)
+                str = 'struct with fields: ';
+                flds = fieldnames(obj.buffer);
+                for ifld = 1:length(flds)
+                    str = sprintf('%s%s, ', str, flds{ifld});
+                end
+                str = str(1:end-2);
+            else
+                str = class(obj.buffer);
+            end
+        end
     end
 
     methods % public methods 
@@ -35,6 +53,9 @@ classdef RingBuffer < handle
             if nargin < 2
                 error('Usage: RingBuffer(useCellArray, capacity)');
             end
+
+            assert(capacity > 0, 'Capacity must be > 0');
+
             obj.useCellArray = useCellArray;
             obj.capacity = capacity;
             obj.head = 1;
@@ -220,6 +241,13 @@ classdef RingBuffer < handle
             % copy everything over
             data = obj.peekFromTail(obj.count);
             newBuffer.addAtHead(data);
+        end
+
+        function newBuffer = getExpandedCopyToHoldData(obj, data)
+            % newBuffer = getExpandedCopyToHoldData(data)
+            useRepeatedDoubling = true;
+            minSize = obj.count + length(data);
+            newBuffer = obj.getExpandedCopy(minSize, true); 
         end
     end
 
