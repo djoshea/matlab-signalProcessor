@@ -1,5 +1,5 @@
-
 classdef RingBuffer < handle
+% Ring buffer data structure with the ability add and remove at both head and tail 
 
     properties (GetAccess=public, SetAccess=protected)
         buffer % pre-allocated data storage

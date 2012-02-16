@@ -1,4 +1,5 @@
 classdef Queue < handle
+% A queue data structure built atop class RingBuffer
 
     properties(Access=protected)
         % ring buffer (either array or cell array) for storing incoming data
