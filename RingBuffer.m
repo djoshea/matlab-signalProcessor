@@ -42,8 +42,9 @@ classdef RingBuffer < handle
             obj.buffer = [];
         end
 
-        function add(obj, data)
-            % add(obj, data)
+        function addAtHead(obj, data)
+            % addAtHead(data) - adds data in forward order at the head
+            
             if isempty(data)
                 return;
             end
@@ -53,7 +54,7 @@ classdef RingBuffer < handle
             end
 
             % check data type
-            [tf msg] = obj.isDataCompatibleWith(data);
+            [tf msg] = obj.isCompatibleWithData(data);
             if ~tf
                 error(msg);
             end
@@ -78,8 +79,15 @@ classdef RingBuffer < handle
             obj.head = obj.getRelativeIdx(idxStore(end), 2);
         end
 
+        function flush(obj)
+            % flush() - completely empty this buffer
+            obj.buffer = [];
+            obj.head = 1;
+            obj.tail = 1;
+        end
+
         function data = peekFromTail(obj, nElements)
-            % data = peekFromTail(obj, nElements)
+            % data = peekFromTail(nElements)
             % returns nElements from the tail forwards in FIFO order
             if ~exist('nElements', 'var')
                 nElements = [];
@@ -88,7 +96,7 @@ classdef RingBuffer < handle
         end
 
         function data = popFromTail(obj, nElements)
-            % data = popFromTail(obj, nElements)
+            % data = popFromTail(nElements)
             % returns and removes nElements from the tail forwards in FIFO order
             if ~exist('nElements', 'var')
                 % this allows cell values to be unwrapped
@@ -100,14 +108,14 @@ classdef RingBuffer < handle
 
             % wipe that region
             idx = obj.getRelativeIdx(obj.tail, 1:nElements);
-            obj.buffer(idx) = obj.emptyElement;
+            obj.wipeRegion(idx);
 
             % advance the tail
             obj.tail = obj.getRelativeIdx(obj.tail, nElements + 1);
         end
 
         function data = peekBackwardsFromHead(obj, nElements)
-            % data = peekBackwardsFromHead(obj, nElements)
+            % data = peekBackwardsFromHead(nElements)
             % returns nElements from the head backwards in LIFO order
             if ~exist('nElements', 'var')
                 nElements = [];
@@ -121,7 +129,7 @@ classdef RingBuffer < handle
         end
 
         function data = popBackwardsFromHead(obj, nElements)
-            % data = popBackwardsFromHead(obj, nElements)
+            % data = popBackwardsFromHead(nElements)
             % returns and removes nElements from the head backwards in LIFO order
             if ~exist('nElements', 'var')
                 % this allows cell values to be unwrapped
@@ -133,7 +141,7 @@ classdef RingBuffer < handle
 
             % wipe that region
             idx = obj.getRelativeIdx(obj.head, 0:-1:-nElements+1);
-            obj.buffer(idx) = obj.emptyElement;
+            obj.wipeRegion(idx);
 
             % rewind the head
             obj.head = obj.getRelativeIdx(obj.head, -nElements + 1);
@@ -141,14 +149,23 @@ classdef RingBuffer < handle
     end
 
     methods % public utility methods
+        function wipeRegion(obj, idx)
+            assert(all(idx > 0 & idx <= obj.capacity), 'Index out of range');
+
+            if obj.useCellArray
+                [obj.buffer{idx}] = deal(obj.emptyElement);
+            else
+                [obj.buffer(idx)] = deal(obj.emptyElement);
+            end
+        end
 
         function tf = hasCapacityFor(obj, data)
             % tf = hasCapacityFor(obj, data)
             tf = length(data) <= obj.free;
         end
 
-        function [tf msg] = isDataCompatibleWith(obj, data)
-            % [tf msg] = isDataCompatibleWith(obj, data)
+        function [tf msg] = isCompatibleWithData(obj, data)
+            % [tf msg] = isCompatibleWithData(obj, data)
             if ~obj.useCellArray
                 if iscell(data)
                     msg = 'This queue does not use a cell array';
@@ -187,17 +204,22 @@ classdef RingBuffer < handle
             end
 
             % only allow expansion
-            minSize = max(minSize, obj.size);
+            minSize = max(minSize, obj.capacity);
             
             if useRepeatedDoubling
                 % double the current size as many times as necessary to accomodate minSize 
-                newSize = obj.size * 2^(ceil(log(minSize/obj.size) / log(2)));
+                newSize = obj.capacity * 2^(ceil(log(minSize/obj.capacity) / log(2)));
             else
                 % just provide the minimum
                 newSize = minSize;
             end
 
+            % create new ring buffer with new size
             newBuffer = RingBuffer(obj.useCellArray, newSize);
+
+            % copy everything over
+            data = obj.peekFromTail(obj.count);
+            newBuffer.addAtHead(data);
         end
     end
 
@@ -227,6 +249,10 @@ classdef RingBuffer < handle
             % if the user specifies nElements, return an array or cell array of
             % that size. If not specified return 1 element by default, and do not
             % wrap that element in a cell array.
+           
+            if obj.count == 0
+                error('Buffer is empty');
+            end
 
             unwrapFromCell = false;
             if ~exist('nElements', 'var') || isempty(nElements)
