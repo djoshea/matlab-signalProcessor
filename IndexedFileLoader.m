@@ -1,5 +1,7 @@
 
 classdef IndexedFileLoader < handle
+% obj = IndexedFileLoader(indexFileName, dataDir, fileLoadFn)
+%
 % This class monitors an index file which contains a list of filenames to load.
 % As other programs append lines to this file, if you call poll(),
 % this class will read the new lines that have been written, 
@@ -74,14 +76,18 @@ classdef IndexedFileLoader < handle
         end
 
         % check the index file for new entries, load them and return results
-        function newData = poll(obj)
+        function newData = poll(obj, maxFiles)
+            if ~exist('maxFiles', 'var')
+                maxFiles = Inf;
+            end
+
             if isempty(obj.indexFid)
                 obj.initialize();
             end
 
             newData = []; 
             idx = 1;
-            while(true)
+            while(idx <= maxFiles)
                 line = fgetl(obj.indexFid);
 
                 if line == -1
