@@ -2,7 +2,7 @@ classdef RingBuffer < handle
 % Ring buffer data structure with the ability add and remove at both head and tail 
 
     properties (GetAccess=public, SetAccess=protected)
-        buffer % pre-allocated data storage
+        buffer % pre-allocated data storage, will be one longer than capacity to prevent head==tail ambiguity
         capacity % maximum capacity for this buffer 
         useCellArray % whether or not a cell array is used for the buffer
         head % head points to the idx for the next data element yet to be added
@@ -17,6 +17,7 @@ classdef RingBuffer < handle
 
     properties(Access=protected, Hidden=true)
         emptyElement 
+        bufferLength
     end
 
     methods % Dependent property calculation
@@ -58,6 +59,7 @@ classdef RingBuffer < handle
 
             obj.useCellArray = useCellArray;
             obj.capacity = capacity;
+            obj.bufferLength = capacity + 1; % this eliminates empty or full ambiguity when head == tail
             obj.head = 1;
             obj.tail = 1;
             obj.buffer = [];
@@ -97,7 +99,7 @@ classdef RingBuffer < handle
             obj.buffer(idxStore) = data; 
 
             % move the head forward
-            obj.head = obj.getRelativeIdx(idxStore(end), 2);
+            obj.head = double(obj.getRelativeIdx(idxStore(end), 2));
         end
 
         function addBehindTail(obj, data)
@@ -135,12 +137,20 @@ classdef RingBuffer < handle
                 return;
             end
 
-            % wipe that region
-            idx = obj.getRelativeIdx(obj.tail, 1:nElements);
-            obj.wipeRegion(idx);
+            obj.wipeFromTail(nElements);
+        end
+
+        function wipeFromTail(obj, nElements)
+            if ~exist('nElements', 'var')
+                nElements = 1;
+            end
+
+            % wipe this region (no need for this, useful for debugging)
+            % idx = obj.getRelativeIdx(obj.tail, 1:nElements);
+            % obj.wipeRegion(idx);
 
             % advance the tail
-            obj.tail = obj.getRelativeIdx(obj.tail, nElements + 1);
+            obj.tail = double(obj.getRelativeIdx(obj.tail, nElements + 1));
         end
 
         function data = peekBackwardsFromHead(obj, nElements)
@@ -171,29 +181,34 @@ classdef RingBuffer < handle
             if nElements == 0
                 return;
             end
-            
-            % wipe that region
-            idx = obj.getRelativeIdx(obj.head, 0:-1:-nElements+1);
-            obj.wipeRegion(idx);
+           
+            obj.wipeBackwardsFromHead(obj, nElements);
+
+        end
+        
+        function wipeBackwardsFromHead(obj, nElements)
+            % wipe that region if you like, though there's no need for this
+            % idx = obj.getRelativeIdx(obj.head, 0:-1:-nElements+1);
+            % obj.wipeRegion(idx);
 
             % rewind the head
-            obj.head = obj.getRelativeIdx(obj.head, -nElements + 1);
+            obj.head = double(obj.getRelativeIdx(obj.head, -nElements + 1));
         end
     end
 
     methods % public utility methods
         function wipeRegion(obj, idx)
-            assert(all(idx > 0 & idx <= obj.capacity), 'Index out of range');
+            assert(all(idx > 0 & idx <= obj.bufferLength), 'Index out of range');
 
             if obj.useCellArray
                 [obj.buffer{idx}] = deal(obj.emptyElement);
             else
-                [obj.buffer(idx)] = deal(obj.emptyElement);
+                obj.buffer(idx) = obj.emptyElement;
             end
         end
 
         function tf = hasCapacityFor(obj, data)
-            % tf = hasCapacityFor(obj, data)
+            % tf = hasCapacityFor(data)
             tf = length(data) <= obj.free;
         end
 
@@ -213,7 +228,7 @@ classdef RingBuffer < handle
                         tf = false;
                         return;
                     end
-                    if isstruct(obj.buffer) & ~isequal(fieldnames(obj.buffer), fieldnames(data))
+                    if isstruct(obj.buffer) && ~isequal(fieldnames(obj.buffer), fieldnames(data))
                         msg = 'New data has a different set of fields than existing data';
                         tf = false;
                         return;
@@ -267,21 +282,21 @@ classdef RingBuffer < handle
         function idxRelative = getRelativeIdx(obj, refAtIdxEquals1, idx)
             % convert idx relative to ref==1 to idx into ringBuf, wrap around if necessary 
             % note that if idx == 1, idxRelative will equal refAtIdxEquals1
-            assert(~any(idx > obj.capacity | idx <= -obj.capacity), ...
-                'Index out of range');
 
-            idxRelative = mod((idx+refAtIdxEquals1-1) - 1, obj.capacity) + 1;
+            % assert(~any(idx > obj.bufferLength | idx <= -obj.bufferLength), 'Index out of range');
+
+            idxRelative = mod((idx+refAtIdxEquals1-1) - 1, obj.bufferLength) + 1;
         end
 
         function n = getRangeLength(obj, idxStart, idxEnd)
             % gets the number of indices between idxStart and idxEnd inclusive and with wrap around
-            assert(~any([idxStart idxEnd] < 0 | [idxStart idxEnd] > obj.capacity), ...
-                'Index out of range');
+            
+            % assert(~any([idxStart idxEnd] < 0 | [idxStart idxEnd] > obj.bufferLength), 'Index out of range');
 
             if idxStart <= idxEnd
                 n = idxEnd-idxStart+1;
             else
-                n = idxEnd+obj.capacity-idxStart+1;
+                n = idxEnd+obj.bufferLength-idxStart+1;
             end
         end
 
@@ -305,8 +320,8 @@ classdef RingBuffer < handle
             end
 
             idx = obj.getRelativeIdx(ref, 1:nElements);
-            assert(obj.isRangeWithinData(idx), ...
-                'Specified range does not lie entirely within stored data');
+            assert(nElements <= obj.count, 'Not enough elements in buffer'); 
+            % assert(obj.isRangeWithinData(idx), 'Specified range does not lie entirely within stored data');
 
             data = obj.buffer(idx);
             if unwrapFromCell
@@ -347,6 +362,9 @@ classdef RingBuffer < handle
         end
 
         function initializeToMatchData(obj, data)
+            % buffer will be one length longer than the capacity, to eliminate
+            % ambiguity when head == tail
+            %
             % assign firstData to last element of buffer 
             % this will initialize buffer to be the correct size
             assert(~isempty(data), 'Cannot initialize to match empty data');
@@ -354,14 +372,14 @@ classdef RingBuffer < handle
             obj.emptyElement = obj.getEmptyElementForData(data);
 
             if obj.useCellArray
-                obj.buffer = cell(obj.capacity, 1);
+                obj.buffer = cell(obj.capacity+1, 1);
             else
                 obj.buffer = data(1);
-                obj.buffer(obj.capacity) = data(1);
+                obj.buffer(obj.capacity+1) = data(1);
 
                 % now replace that last element with something empty
                 obj.buffer(1) = obj.emptyElement;
-                obj.buffer(obj.capacity) = obj.emptyElement;
+                obj.buffer(obj.capacity+1) = obj.emptyElement;
             end
         end
 

@@ -13,6 +13,14 @@ classdef Queue < handle
     end
 
     methods
+        function val = length(obj)
+            val = obj.count;
+        end
+
+        function tf = isempty(obj)
+            tf = obj.count == 0;
+        end
+
         function str = get.dataClass(obj)
             str = obj.ringBuffer.dataClass;
         end
@@ -50,6 +58,7 @@ classdef Queue < handle
         end
 
         function data = peek(obj, nElements)
+            % data = peek(nElements) - fetch nElements without removing them from the queue
             if ~exist('nElements', 'var')
                 data = obj.ringBuffer.peekFromTail();
             else
@@ -57,12 +66,35 @@ classdef Queue < handle
             end
         end
 
+        function data = peekAhead(obj, nElementsSkip, nElements)
+            % same as peek, except begins peeking nElementsSkip ahead of the tail
+            data = obj.ringBuffer.peekFromTail(nElementsSkip+nElements);
+            data = data(nElementsSkip+1:end);
+        end
+
         function data = remove(obj, nElements)
+            % data = remove(nElements) - remove elements and return them
             if ~exist('nElements', 'var')
                 data = obj.ringBuffer.removeFromTail();
             else
                 data = obj.ringBuffer.removeFromTail(nElements);
             end
+        end
+
+        function wipe(obj, nElements)
+            % wipe(nElements) - remove elements without fetching them (faster than remove)
+            if ~exist('nElements', 'var')
+                nElements = 1;
+            end
+            obj.ringBuffer.wipeFromTail(nElements);
+        end
+
+        function data = removeAll(obj)
+            data = obj.remove(obj.count);
+        end
+
+        function data = wipeAll(obj)
+            obj.wipe(obj.count);
         end
     end
 
