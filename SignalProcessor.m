@@ -14,13 +14,16 @@ classdef SignalProcessor < handle
     
     properties(Constant)
         GROUPTYPE_CONTROL = 1;
-        GROUPTYPE_
+        GROUPTYPE_PARAM = 2;
+        GROUPTYPE_ANALOG = 3;
+        GROUPTYPE_EVENT = 4;
     end
 
     properties(Hidden=true)
         loader
         signalQueue 
         groupQueue
+        trialQueue
     end
     
     methods
@@ -44,31 +47,60 @@ classdef SignalProcessor < handle
 
             obj.signalQueue = Queue(false, 1000);
             obj.groupQueue = Queue(false, 1000);
+            obj.trialQueue = Queue(false, 10);
         end
 
         function poll(obj) 
             obj.receiveNewSignals(obj.loader.poll(obj.maxSignalFilesPerPoll));
         end
 
-        function hasSignals = receiveNewSignals(obj, newData)
+        function receiveNewData(obj, newData)
             % check that all newData.data have a .signals variable within
             hasSignals = arrayfun(@(d) isfield(d.data, 'signals'), newData); 
 
             assert(all(hasSignals), 'Unexpectedly received data without .signals');
-
+            
             % concatenate all of the signals from all of the files
             data = [newData.data];
             signalsCell = {data.signals}';
             signals = cell2mat(signalsCell);
-            obj.signalQueue.add(signals); 
+            
+            obj.receiveNewSignals(obj, signals);
+        end
+        
+        function receiveNewSignals(obj, signals)
+            oldSignals = obj.signalQueue.removeAll();
+            signals = [oldSignals signals];
 
-            obj.groupSignals();
+            obj.groupSignals(signals);
         end
 
-        function groupSignals(obj)
-            [leftoverSignals = obj.groupSignalsUntilControlGroup(signals);
+        function groupSignals(obj, signals)
+           
+            while true
+                [leftoverSignals controlGroup] = obj.groupSignalsUntilControlGroup(signals);
 
-            % add to the queue
+                if isempty(controlGroup)
+                    % no control group encountered, just ran out of signals
+                    break;
+                end
+
+                % get command from control group
+                controlCommand = controlGroup.signals.command;
+
+                if(strcmp(controlCommand, 'nextTrial'))
+                    % command to start new trial
+                    r = obj.buildTrialFromGroupQueue(controlGroup); 
+                    if ~isempty(r)
+                        obj.trialQueue.add(r);
+                    end
+                    signals = leftoverSignals;
+                else
+                    error('Unknown control command %s', controlCommand);
+                end
+            end
+            
+            % add leftover signals to the queue for next time
             obj.signalQueue.add(leftoverSignals);
         end
 
@@ -77,6 +109,7 @@ classdef SignalProcessor < handle
             % which tells us how to parse the group of signals
 
             leftoverSignals = [];
+            controlGroup = [];
             if isempty(signals)
                return;
             end
@@ -149,10 +182,89 @@ classdef SignalProcessor < handle
                     error('Unknown signal group version %d', groupVersion);
                 end
 
-                obj.groupQueue.add(group);
+                if group.type == obj.GROUPTYPE_CONTROL
+                    % it's a control packet, we're done!
+                    controlGroup = group;
+                    break;
+                else
+                    obj.groupQueue.add(group);
+                end
             end 
             
+            % return the remaining signals
             leftoverSignals = signals(sigOffset:end);
+        end
+
+        function s = buildTrialFromGroupQueue(obj, controlGroup)
+            s = [];
+            groups = obj.groupQueue.removeAll();
+
+            if isempty(groups)
+                return;
+            end
+
+            timestamps = sort(unique([groups.timestamp]));
+            tsStart = timestamps(1);
+            tsStop = timestamps(end);
+            trialLength = tsStop - tsStart + 1;
+
+            fprintf('Storing trial with length %d...\n', trialLength); 
+            tds = TrialDataSerializer(tsStart, tsStop);
+
+            obj.processParamGroups(tds, groups);
+            obj.processAnalogGroups(tds, groups);
+            obj.processEventGroups(tds, groups);
+
+            s = tds.serialize();
+        end
+
+        function processParamGroups(obj, tds, groups)
+            paramGroupIdx = find([groups.type]==SignalProcessor.GROUPTYPE_PARAM);
+            
+            for iPG = 1:length(paramGroupIdx)
+                group = groups(paramGroupIdx(iPG));
+                paramNames = fieldnames(group.signals);
+                for iP = 1:length(paramNames)
+                    [name units] = obj.parseNameUnits(paramNames{iP});
+                    value = double(group.signals.(paramNames{iP}); % convert to double since most params are scalar
+                    tds.addParam(group.name, name, value, units);
+                end
+            end 
+        end
+
+        function r = processAnalogGroups(obj, r, groups)
+            analogGroupIdx = find([groups.type]==SignalProcessor.GROUPTYPE_ANALOG);
+
+            groupNames = sort(unique({groups.name}));
+            nGroups = length(groupNames);
+            namesForGroup = @(groupName) groups(strcmp{group.name
+
+            for ts = r.time.start:r.time.stop
+
+            for iAG = 1:length(analogGroupIdx)
+                group = groups(analogGroupIdx(iAG));
+                analogNames = fieldnames(group.signals);
+                for iP = 1:length(paramNames)
+                    % convert to double since most params are scalar
+                    r.(group.name).(paramNames{iP}) = double(group.signals.(paramNames{iP}));
+                end
+            end 
+        end
+
+        function [name units] = parseNameUnits(nameWithUnits)
+            % takes 'name(units)' and splits into name and units
+            [name parenUnits] = strtok(nameWithUnits, '('));
+            if ~isempty(parenUnits)
+                if length(parenUnits >= 2) && parenUnits(1) == '(' && parenUnits(end) == ')'
+                    units = parenUnits(2:end-1);
+                else
+                    % something's amiss, return the whole thing untouched
+                    units = '';
+                    name = nameWithUnits;
+                end
+            else
+                units = '';
+            end
         end
 
     end

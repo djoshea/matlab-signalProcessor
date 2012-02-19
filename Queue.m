@@ -44,10 +44,10 @@ classdef Queue < handle
         end
 
         function add(obj, data)
-            [compatible msg] = obj.ringBuffer.isCompatibleWithData(data);
-            if ~compatible
-                error(msg);
-            end
+            %[compatible msg] = obj.ringBuffer.isCompatibleWithData(data);
+            %if ~compatible
+            %    error(msg);
+            %end
             
             % expand to hold new data if necessary
             if ~obj.ringBuffer.hasCapacityFor(data);

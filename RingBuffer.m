@@ -76,11 +76,11 @@ classdef RingBuffer < handle
                 obj.initializeToMatchData(data);
             end
 
-            % check data type
-            [tf msg] = obj.isCompatibleWithData(data);
-            if ~tf
-                error(msg);
-            end
+            % check data type, you should call this yourself!
+            %[tf msg] = obj.isCompatibleWithData(data);
+            %if ~tf
+            %    error(msg);
+            %end
 
             % only adding one item to a cell array? wrap it in a cell
             if obj.useCellArray & ~iscell(data)
@@ -90,7 +90,7 @@ classdef RingBuffer < handle
             nNewData = length(data);
 
             % check capacity
-            assert(obj.hasCapacityFor(data), ...
+            assert(length(data) <= obj.free, ...
                 'This buffer is not big enough to accomodate %d new elements. \nTry calling: getExpandedCopy(%d)', ...
                 nNewData, nNewData + obj.count);
 
