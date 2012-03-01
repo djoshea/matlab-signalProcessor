@@ -90,6 +90,7 @@ classdef SignalProcessor < handle
 
                 if(strcmp(controlCommand, 'nextTrial'))
                     % command to start new trial
+                    keyboard
                     r = obj.buildTrialFromGroupQueue(controlGroup); 
                     if ~isempty(r)
                         obj.trialQueue.add(r);
@@ -226,7 +227,7 @@ classdef SignalProcessor < handle
                 paramNames = fieldnames(group.signals);
                 for iP = 1:length(paramNames)
                     [name units] = obj.parseNameUnits(paramNames{iP});
-                    value = double(group.signals.(paramNames{iP}); % convert to double since most params are scalar
+                    value = double(group.signals.(paramNames{iP})); % convert to double since most params are scalar
                     tds.addParam(group.name, name, value, units);
                 end
             end 
@@ -237,9 +238,9 @@ classdef SignalProcessor < handle
 
             groupNames = sort(unique({groups.name}));
             nGroups = length(groupNames);
-            namesForGroup = @(groupName) groups(strcmp{group.name
+            namesForGroup = @(groupName) groups(strcmp{group.name});
 
-            for ts = r.time.start:r.time.stop
+%            for ts = r.time.start:r.time.stop
 
             for iAG = 1:length(analogGroupIdx)
                 group = groups(analogGroupIdx(iAG));
@@ -253,7 +254,7 @@ classdef SignalProcessor < handle
 
         function [name units] = parseNameUnits(nameWithUnits)
             % takes 'name(units)' and splits into name and units
-            [name parenUnits] = strtok(nameWithUnits, '('));
+            [name parenUnits] = strtok(nameWithUnits, '(');
             if ~isempty(parenUnits)
                 if length(parenUnits >= 2) && parenUnits(1) == '(' && parenUnits(end) == ')'
                     units = parenUnits(2:end-1);

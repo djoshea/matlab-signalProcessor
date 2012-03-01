@@ -5,8 +5,10 @@ classdef TrialDataSerializer < handle
         tsEnd
         tUnit = 'ms';
 
-        % this format must hold event, param, and analog data
-        data
+        % see flush() for the fields within these struct arrays
+        analogData
+        eventData
+        paramData
     end
 
     properties(Constant)
@@ -26,37 +28,121 @@ classdef TrialDataSerializer < handle
             val = obj.duration;
         end
 
-        function val = get.duration()
+        function val = get.duration(obj)
             val = tsEnd-tsStart+1; 
         end
 
-        function tvec = get.trialTime()
+        function tvec = get.trialTime(obj)
             tvec = 1:trialTime;
         end
+
     end
 
     methods
         
-        function obj = TrialData(tsStart, tsEnd)
-            obj.tsStart = tsStart;
-            obj.tsEnd = tsEnd;
+        function obj = TrialDataSerializer()
             obj.flush();
         end
 
         function flush(obj)
-            obj.data = struct(  'type', '', ...
-                                'groupName', '', ...
-                                'name', '', ...
-                                'timeRelative', [], ...
-                                'values', [], ...
-                                'metadata', [], ...
-                                'unit', [], ...
-                                'scaleFn', [], ...
-                            );
+            % reset this object's state so that it can be used for the next trial
+            obj.tsStart = [];
+            obj.tsEnd = [];
+
+            obj.analogData = struct('type', '', ...
+                                    'groupname', '', ...
+                                    'name', '', ...
+                                    'timeRelative', [], ...
+                                    'values', [], ...
+                                    'metadata', [], ...
+                                    'unit', [], ...
+                                    'scalefn', [], ...
+                                   );
+
+            obj.eventData = struct('type', '', ...
+                                   'groupname', '', ...
+                                   'name', '', ...
+                                   'timeRelative', [], ...
+                                   'metadata', [], ...
+                                  );
+
+            obj.paramData = struct('type', '', ...
+                                   'groupname', '', ...
+                                   'name', '', ...
+                                   'value', [], ...
+                                   'unit', [], ...
+                                   'metadata', [], ...
+                                   );
         end
 
-        function addData(obj, type, groupName, name, timestamps, values, metadata, unit, scaleFn)
-            idx = length(obj.data)+1;
+        function idx = findParamByName(obj, groupName, name)
+            idx = find(strcmp({obj.paramData.groupName}, groupName) & ...
+                strcmp({obj.paramData.name}, name));
+        end
+
+        function idx = findEventByName(obj, groupName, name)
+            idx = find(strcmp({obj.eventData.groupName}, groupName) & ...
+                strcmp({obj.eventData.name}, name));
+        end
+        
+        function idx = findAnalogByName(obj, groupName, name)
+            idx = find(strcmp({obj.analogData.groupName}, groupName) & ...
+                strcmp({obj.analogData.name}, name));
+        end
+
+        function addParam(obj, groupName, name, value, units)
+            if obj.findParamByName(groupName, name)
+                warning('Duplicate setting for parameter %s.%s\n', groupName, name);
+            end
+
+            idx = length(obj.analogData)+1;
+            obj.data(idx).type = type;
+            obj.data(idx).groupName = groupName;
+            obj.data(idx).name = name;
+            obj.data(idx).value = value;
+            obj.data(idx).metadata = metadata;
+            obj.data(idx).units = units;
+        end
+
+
+        function addEvent(obj, groupName, name, timestamp, metadata)
+            idx = obj.findEventByName(groupName, name);
+            timeRelative = timestamp - obj.tsStart;
+
+            if ~isempty(idx)
+                % this event has already been added, simply append the timestamp
+                % but maintain the timestamps in sorted order
+                ev = obj.eventData(idx);
+                [ev.timeRelative sortIdx] = sort([ev.timeRelative timeRelative]);
+
+                % apply the same sorting order to the metadata cell
+                metadata = [ev.metadata metadata];
+                ev.metadata = metadata(sortIdx);
+            else
+                % append a new event
+                idx = length(obj.eventData)+1;
+                obj.data(idx).type = obj.TYPE_EVENT;
+                obj.data(idx).groupName = groupName;
+                obj.data(idx).name = name;
+                obj.data(idx).timeRelative = timeRelative;
+
+                % wrap metadata in a cell to maintain consistency when there are
+                % multiple occurrences for this event
+                obj.data(idx).metadata = {metadata};
+            end
+
+        end
+
+        function addAnalog(obj, groupName, name, timestamps, values, metadata, unit, scaleFn)
+            idx = obj.findAnalogByName(groupName, name);
+
+            if ~isempty(idx)
+
+            % sort the timestamps and values
+            [timestamps sortIdx] = sort(timestamps);
+            values = values(sortIdx);
+
+            idx = length(obj.analogData)+1;
             obj.data(idx).type = type;
             obj.data(idx).groupName = groupName;
             obj.data(idx).name = name;
@@ -67,35 +153,15 @@ classdef TrialDataSerializer < handle
             obj.data(idx).scaleFn = scaleFn;
         end
 
-        function addParam(obj, groupName, name, value, unit)
-            obj.addData(obj.TYPE_PARAM, groupName, name, [], value, [], unit, []);
-        end
-
-        function addEvent(obj, groupName, name, timestamps, metadata)
-            % sort the timestamps and metadata 
-            [timestamps sortIdx] = sort(timestamps);
-            metadata = metadata(sortIdx);
-
-            obj.addData(obj.TYPE_EVENT, groupName, name, timestamps, [], metadata, [], []);
-        end
-
-        function addAnalog(obj, groupName, name, timestamps, values, metadata, unit, scaleFn)
-            % sort the timestamps and values
-            [timestamps sortIdx] = sort(timestamps);
-            values = values(sortIdx);
-
-            obj.addData(obj.TYPE_ANALOG, groupName, name, timestamps, values, metadata, unit, scaleFn); 
-        end
-
         function s = serialize(obj)
             trialTime = obj.trialTime;
             
             s = [];
-            s.version = obj.VERSION;
-            s.tsStart = obj.tsStart;
-            s.tsEnd = obj.tsEnd;
-            s.duration = obj.duration;
-            s.tUnit = obj.tUnit;
+            s.meta.version = obj.VERSION;
+            s.meta.tsStart = obj.tsStart;
+            s.meta.tsEnd = obj.tsEnd;
+            s.meta.duration = obj.duration;
+            s.meta.tUnit = obj.tUnit;
 
             % unpack obj.data into separate fields for space efficiency
             dataFields = fieldnames(obj.data)
