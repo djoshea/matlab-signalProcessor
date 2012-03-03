@@ -1,6 +1,6 @@
 function signals = GenerateSampleSignals() 
 
-% Parameters 
+%% Parameters and generator functions 
 nTrials = 5;
 
 nEvents = [5 5 10];
@@ -16,7 +16,7 @@ trialLengthRange = [300 1500];
 
 paramNameFn = @(groupIdx, idx) sprintf('param%d', idx);
 paramGroupNameFn = @(groupIdx) sprintf('paramGroup%d', groupIdx);
-paramGeneratorFn = @(groupIdx, idx, trialNum, ts, trialTime) trialNum; 
+paramGeneratorFn = @(groupIdx, idx, trialNum, ts, trialTime) 100*trialNum + 10*groupIdx + idx; 
 
 eventNameFn = @(group, idx) sprintf('event%d', idx);
 eventGroupNameFn = @(groupIdx) sprintf('eventGroup%d', groupIdx);
@@ -26,17 +26,21 @@ analogNameFn = @(group, idx) sprintf('channel%d',idx);
 analogGroupNameFn = @(groupIdx) sprintf('analog%d', groupIdx);
 analogGeneratorFn = @(groupIdx, idx, trialNum, ts, timeWithinTrial) sin(2*pi*8*(ts+10*idx));
 
-%% Generate trial data
+%% Build signals
 
 sigQ = Queue(false);
+
+% Generate info control packet
+
 ts = 1;
+ctrl = struct('command', 'SetInfo', 'protocol', 'TestProtocol');
+sigQ.add(buildGroup(ts, SignalProcessor.GROUPTYPE_CONTROL, 'control', ctrl));
+
+% Generate trial data
+
 for iTrial = 1:nTrials
     textprogressbar(sprintf('Building trial %d', iTrial));
     trialStart = ts;
-
-    % send trial advance control group
-    ctrl.command = 'nextTrial';
-    sigQ.add(buildGroup(ts, SignalProcessor.GROUPTYPE_CONTROL, 'control', ctrl));
 
     trialLength = randi(trialLengthRange);
 
@@ -87,6 +91,10 @@ for iTrial = 1:nTrials
     
         ts = ts + 1;
     end
+
+    % send trial advance control group
+    ctrl = struct('command', 'NextTrial');
+    sigQ.add(buildGroup(ts, SignalProcessor.GROUPTYPE_CONTROL, 'control', ctrl));
 
     textprogressbar('done', true);
 end

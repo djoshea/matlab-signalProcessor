@@ -5,6 +5,8 @@ classdef SignalProcessor < handle
         signalDir 
         indexFile
         maxSignalFilesPerPoll = 50;
+
+        currentProtocol
     end
 
     properties(Dependent)
@@ -48,6 +50,10 @@ classdef SignalProcessor < handle
             obj.signalQueue = Queue(false, 1000);
             obj.groupQueue = Queue(false, 1000);
             obj.trialQueue = Queue(false, 10);
+
+            % allow buffer expansion / auto field blanking in case groups drop in and out over the day
+            obj.trialQueue.structAllowPartialFields = true;
+            obj.trialQueue.structAllowAdditionalFields = true;
         end
 
         function poll(obj) 
@@ -69,28 +75,39 @@ classdef SignalProcessor < handle
         end
         
         function receiveNewSignals(obj, signals)
+            % remove signals currently on the queue to prepend
             oldSignals = obj.signalQueue.removeAll();
             signals = [oldSignals signals];
 
-            obj.groupSignals(signals);
+            leftoverSignals = obj.processSignals(signals);
+
+            % add leftover signals to the queue for next time
+            obj.signalQueue.add(leftoverSignals);
         end
 
-        function groupSignals(obj, signals)
+        function leftoverSignals = processSignals(obj, signals)
            
             while true
                 [leftoverSignals controlGroup] = obj.groupSignalsUntilControlGroup(signals);
 
                 if isempty(controlGroup)
                     % no control group encountered, just ran out of signals
+                    % so, just wait for next time
                     break;
                 end
 
                 % get command from control group
                 controlCommand = controlGroup.signals.command;
 
-                if(strcmp(controlCommand, 'nextTrial'))
+                if(strcmpi(controlCommand, 'SetInfo'))
+                    % set the info regarding what kind of data is coming in
+                    obj.currentProtocol = controlGroup.signals.protocol;
+                    signals = leftoverSignals;
+                    
+                elseif(strcmp(controlCommand, 'NextTrial'))
                     % command to start new trial
-                    keyboard
+
+                    % serialize a trial out of the groups in the queue
                     r = obj.buildTrialFromGroupQueue(controlGroup); 
                     if ~isempty(r)
                         obj.trialQueue.add(r);
@@ -101,8 +118,6 @@ classdef SignalProcessor < handle
                 end
             end
             
-            % add leftover signals to the queue for next time
-            obj.signalQueue.add(leftoverSignals);
         end
 
         function [leftoverSignals controlGroup] = groupSignalsUntilControlGroup(obj, signals)
@@ -196,63 +211,101 @@ classdef SignalProcessor < handle
             leftoverSignals = signals(sigOffset:end);
         end
 
-        function s = buildTrialFromGroupQueue(obj, controlGroup)
-            s = [];
+        function r = buildTrialFromGroupQueue(obj, controlGroup)
+            r = [];
             groups = obj.groupQueue.removeAll();
 
             if isempty(groups)
                 return;
             end
 
+            fprintf('Storing trial...\n'); 
             timestamps = sort(unique([groups.timestamp]));
-            tsStart = timestamps(1);
-            tsStop = timestamps(end);
-            trialLength = tsStop - tsStart + 1;
+            tds = TrialDataSerializer();
 
-            fprintf('Storing trial with length %d...\n', trialLength); 
-            tds = TrialDataSerializer(tsStart, tsStop);
+            tds.protocol = obj.currentProtocol; 
+            tds.tsStart = timestamps(1);
+            tds.tsEnd = timestamps(end);
 
-            obj.processParamGroups(tds, groups);
             obj.processAnalogGroups(tds, groups);
             obj.processEventGroups(tds, groups);
+            obj.processParamGroups(tds, groups);
 
-            s = tds.serialize();
+            r = tds.serialize()
+        end
+
+        function groups = filterGroupsByType(obj, groups, groupType)
+            idx = find([groups.type] == groupType);
+            groups = groups(idx); 
+        end
+
+        function groups = filterGroupsByName(obj, groups, groupName)
+            idx = find(strcmp({groups.name}, groupName));
+            groups = groups(idx); 
         end
 
         function processParamGroups(obj, tds, groups)
-            paramGroupIdx = find([groups.type]==SignalProcessor.GROUPTYPE_PARAM);
-            
-            for iPG = 1:length(paramGroupIdx)
-                group = groups(paramGroupIdx(iPG));
-                paramNames = fieldnames(group.signals);
-                for iP = 1:length(paramNames)
-                    [name units] = obj.parseNameUnits(paramNames{iP});
-                    value = double(group.signals.(paramNames{iP})); % convert to double since most params are scalar
+            groups = obj.filterGroupsByType(groups, SignalProcessor.GROUPTYPE_PARAM);
+
+            for iPG = 1:length(groups)
+                group = groups(iPG);
+                names = fieldnames(group.signals);
+                for iP = 1:length(names)
+                    [name units] = obj.parseNameUnits(names{iP});
+                    value = group.signals.(names{iP}); % convert to double since most params are scalar
                     tds.addParam(group.name, name, value, units);
                 end
             end 
         end
 
-        function r = processAnalogGroups(obj, r, groups)
-            analogGroupIdx = find([groups.type]==SignalProcessor.GROUPTYPE_ANALOG);
+        function processEventGroups(obj, tds, groups)
+            groups = obj.filterGroupsByType(groups, SignalProcessor.GROUPTYPE_EVENT);
 
-            groupNames = sort(unique({groups.name}));
-            nGroups = length(groupNames);
-            namesForGroup = @(groupName) groups(strcmp{group.name});
-
-%            for ts = r.time.start:r.time.stop
-
-            for iAG = 1:length(analogGroupIdx)
-                group = groups(analogGroupIdx(iAG));
-                analogNames = fieldnames(group.signals);
-                for iP = 1:length(paramNames)
-                    % convert to double since most params are scalar
-                    r.(group.name).(paramNames{iP}) = double(group.signals.(paramNames{iP}));
+            for iG = 1:length(groups)
+                group = groups(iG);
+                name = group.signals.name;
+                if isfield(group.signals, 'tag')
+                    tag = group.signals.tag;
+                else
+                    tag = [];
                 end
+                tds.addEvent(group.name, name, group.timestamp, tag);
             end 
         end
 
-        function [name units] = parseNameUnits(nameWithUnits)
+        function r = processAnalogGroups(obj, tds, groups)
+            groups = obj.filterGroupsByType(groups, SignalProcessor.GROUPTYPE_ANALOG);
+
+            for iG = 1:length(groups)
+                g = groups(iG);
+                names = fieldnames(g.signals);
+                for iA = 1:length(names)
+                    [name units] = obj.parseNameUnits(names{iA});
+                    tds.addAnalog(g.name, name, g.timestamp, g.signals.(names{iA}), units, []);
+                end
+            end
+
+%           groupNames = sort(unique({groups.name}));
+%           nGroups = length(groupNames);
+
+%           for iGN = 1:nGroupNames
+%               groupsThisName = obj.filterGroupsByName(groups, groupNames{iGN});
+%               signalNames = fieldnames(groupsThisName(1).signals);
+%               for iA = 1:length(signals)
+%                    
+%                   tds.addAnalog
+%               for iP = 1:length(paramNames)
+%                   % convert to double since most params are scalar
+%                   r.(group.name).(paramNames{iP}) = double(group.signals.(paramNames{iP}));
+%               end
+%           end 
+        end
+
+        function [name units] = parseNameUnits(obj, nameWithUnits)
+            % genvarname is used to escape variable names, and replaces ( ) with these codes
+            nameWithUnits = strrep(nameWithUnits, '0x28', '(');
+            nameWIthUnits = strrep(nameWithUnits, '0x29', ')');
+
             % takes 'name(units)' and splits into name and units
             [name parenUnits] = strtok(nameWithUnits, '(');
             if ~isempty(parenUnits)

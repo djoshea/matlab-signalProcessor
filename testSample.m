@@ -1,6 +1,10 @@
-clear
+clear sp
 
-signals = GenerateSampleSignals();
+if ~exist('signals', 'var')
+    signals = GenerateSampleSignals();
+end
 
 sp = SignalProcessor();
 sp.receiveNewSignals(signals);
+
+
