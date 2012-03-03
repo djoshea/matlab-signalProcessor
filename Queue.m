@@ -12,6 +12,11 @@ classdef Queue < handle
         currentCapacity
     end
 
+    properties(Dependent, SetAccess=public)
+        structAllowPartialFields; % accept new structs with only a subset of fields specified
+        structAllowAdditionalFields; % accept structs with fields that are not currently in the buffer
+    end
+
     methods
         function val = length(obj)
             val = obj.count;
@@ -31,6 +36,24 @@ classdef Queue < handle
         
         function val = get.currentCapacity(obj)
             val = obj.ringBuffer.capacity;
+        end
+
+        % these functions provide access to the field with the same name
+        % inside the RingBuffer
+        function val = get.structAllowPartialFields(obj)
+            val = obj.ringBuffer.structAllowPartialFields;
+        end
+
+        function set.structAllowPartialFields(obj, val)
+            obj.ringBuffer.structAllowPartialFields = val;
+        end
+        
+        function val = get.structAllowAdditionalFields(obj)
+            val = obj.ringBuffer.structAllowAdditionalFields;
+        end
+
+        function set.structAllowAdditionalFields(obj, val)
+            obj.ringBuffer.structAllowAdditionalFields = val;
         end
     end
 

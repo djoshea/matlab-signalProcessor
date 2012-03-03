@@ -7,7 +7,14 @@ classdef RingBuffer < handle
         useCellArray % whether or not a cell array is used for the buffer
         head % head points to the idx for the next data element yet to be added
         tail % tail points to the idx for the oldest data element already added
+
     end
+
+    properties (Access=public)
+        structAllowPartialFields  = false; % accept new structs with only a subset of fields specified
+        structAllowAdditionalFields = false; % accept structs with fields that are not currently in the buffer
+    end
+
 
     properties (Dependent, SetAccess=protected)
         dataClass
@@ -81,6 +88,23 @@ classdef RingBuffer < handle
             %if ~tf
             %    error(msg);
             %end
+
+            if ~obj.useCellArray && isstruct(data)
+                % we're using a struct array, check field consistency
+                if obj.structAllowPartialFields 
+                    data = obj.addMissingFieldsToData(data);
+                end
+                
+                if obj.structAllowAdditionalFields
+                    obj.addMissingFieldsToBuffer(data);
+                end
+
+                assert(isequal(sort(fieldnames(data)), sort(fieldnames(obj.buffer))), ...
+                    'New data fields incompatible with buffer. See structAllowPartialFields and structAllowAdditionalFields is specified');
+
+                % reorder the fields in the same order as in the buffer
+                data = orderfields(data, obj.buffer);
+            end
 
             % only adding one item to a cell array? wrap it in a cell
             if obj.useCellArray & ~iscell(data)
@@ -194,6 +218,36 @@ classdef RingBuffer < handle
             % rewind the head
             obj.head = double(obj.getRelativeIdx(obj.head, -nElements + 1));
         end
+
+        function data = addMissingFieldsToData(obj, data)
+            % for each field in buffer that's not in data, set data.field = []
+            addFields = setdiff(fieldnames(obj.buffer), fieldnames(data));
+            for i = 1:length(addFields)
+                [data.(addFields{i})] = deal([]);
+            end
+            
+        end
+
+        function addMissingFieldsToBuffer(obj, s)
+            % addFields = makeBufferCompatibleWithStruct(s)
+            % When storing structs in a struct array, adds fields to the internal buffer
+            % to allow the struct s to be stored.
+            %
+            % Specifically, for each field in s that is not in buffer, sets each
+            % buffer(:).field = []
+            
+            assert(~obj.useCellArray && (isempty(obj.buffer) || isstruct(obj.buffer)), ...
+                'This buffer does not use a struct array');
+            
+            oldFields = fieldnames(obj.buffer);
+            newFields = fieldnames(s);
+
+            % for each field in s that is not in buffer, set buffer.field = []
+            addFields = setdiff(newFields, oldFields);
+            for iF = 1:length(addFields)
+                [obj.buffer.(addFields{iF})] = deal([]);
+            end
+        end
     end
 
     methods % public utility methods
@@ -228,10 +282,20 @@ classdef RingBuffer < handle
                         tf = false;
                         return;
                     end
-                    if isstruct(obj.buffer) && ~isequal(fieldnames(obj.buffer), fieldnames(data))
-                        msg = 'New data has a different set of fields than existing data';
-                        tf = false;
-                        return;
+                    if isstruct(obj.buffer)
+                        if obj.structAllowPartialFields
+                            if ~all(ismember(fieldnames(data), fieldnames(obj.buffer)))
+                                msg = 'New data has fields which are not a subset of this buffer''s fields';
+                                tf = false;
+                                return
+                            end
+                        else
+                            if ~isequal(fieldnames(obj.buffer), fieldnames(data))
+                                msg = 'New data has a different set of fields than existing data';
+                                tf = false;
+                                return;
+                            end
+                        end
                     end
                 end
             end
@@ -239,6 +303,7 @@ classdef RingBuffer < handle
             tf = true;
             msg = '';
         end
+
 
         function tf = isRangeWithinData(obj, idx)
             % tf = isRangeWithinData(obj, idx)
