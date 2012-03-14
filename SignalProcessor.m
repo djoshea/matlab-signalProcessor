@@ -2,11 +2,12 @@
 classdef SignalProcessor < handle
 
     properties
-        signalDir 
-        indexFile
+        indexFile = '';
+        signalDir = '';
         maxSignalFilesPerPoll = 50;
 
-        currentProtocol
+        currentSubject = '';
+        currentProtocol = '';
     end
 
     properties(Dependent)
@@ -14,7 +15,7 @@ classdef SignalProcessor < handle
         groupsPending
     end
     
-    properties(Constant)
+    properties(Constant,Hidden)
         GROUPTYPE_CONTROL = 1;
         GROUPTYPE_PARAM = 2;
         GROUPTYPE_ANALOG = 3;
@@ -22,7 +23,10 @@ classdef SignalProcessor < handle
     end
 
     properties(Hidden=true)
+        pathMgr
         loader
+        trialSaver
+        tds
         signalQueue 
         groupQueue
         trialQueue
@@ -36,16 +40,31 @@ classdef SignalProcessor < handle
         function val = get.groupsPending(obj)
             val = obj.groupQueue.count;
         end
+
+        function set.currentProtocol(obj, val)
+            obj.currentProtocol = val;
+            obj.trialSaver.protocol = val;
+        end
+
+        function set.currentSubject(obj, val)
+            obj.currentSubject = val;
+            obj.trialSaver.subject = val;
+        end
+
     end
 
     methods
         function obj = SignalProcessor()
-            signalDir = '/expdata/signals/20120206';
-            indexFile = fullfile(signalDir, 'index.txt');
-            obj.signalDir = signalDir;
-            obj.indexFile = indexFile; 
+            obj.pathMgr = FilePathManager();
+            obj.tds = TrialDataSerializer();
+            obj.trialSaver = TrialDataSaver();
+            obj.reset();
+        end
 
-            obj.loader = IndexedFileLoader(indexFile, signalDir, @load); 
+        function reset(obj)
+            obj.signalDir = obj.pathMgr.getSignalsPath();
+            obj.indexFile = obj.pathMgr.getSignalsIndexFile();
+            obj.loader = IndexedFileLoader(obj.indexFile, obj.signalDir, @load); 
 
             obj.signalQueue = Queue(false, 1000);
             obj.groupQueue = Queue(false, 1000);
@@ -102,6 +121,7 @@ classdef SignalProcessor < handle
                 if(strcmpi(controlCommand, 'SetInfo'))
                     % set the info regarding what kind of data is coming in
                     obj.currentProtocol = controlGroup.signals.protocol;
+                    obj.currentSubject = controlGroup.signals.subject;
                     signals = leftoverSignals;
                     
                 elseif(strcmp(controlCommand, 'NextTrial'))
@@ -219,10 +239,9 @@ classdef SignalProcessor < handle
                 return;
             end
 
-            fprintf('Storing trial...\n'); 
             timestamps = sort(unique([groups.timestamp]));
-            tds = TrialDataSerializer();
-
+            tds = obj.tds;
+            tds.flush();
             tds.protocol = obj.currentProtocol; 
             tds.tsStart = timestamps(1);
             tds.tsEnd = timestamps(end);
@@ -231,7 +250,9 @@ classdef SignalProcessor < handle
             obj.processEventGroups(tds, groups);
             obj.processParamGroups(tds, groups);
 
-            r = tds.serialize()
+            r = tds.serialize();
+
+            obj.trialSaver.saveTrial(r);
         end
 
         function groups = filterGroupsByType(obj, groups, groupType)
@@ -304,7 +325,7 @@ classdef SignalProcessor < handle
         function [name units] = parseNameUnits(obj, nameWithUnits)
             % genvarname is used to escape variable names, and replaces ( ) with these codes
             nameWithUnits = strrep(nameWithUnits, '0x28', '(');
-            nameWIthUnits = strrep(nameWithUnits, '0x29', ')');
+            nameWithUnits = strrep(nameWithUnits, '0x29', ')');
 
             % takes 'name(units)' and splits into name and units
             [name parenUnits] = strtok(nameWithUnits, '(');

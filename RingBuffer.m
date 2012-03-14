@@ -330,6 +330,10 @@ classdef RingBuffer < handle
             % create new ring buffer with new size
             newBuffer = RingBuffer(obj.useCellArray, newSize);
 
+            % copy over the values of any parameters
+            newBuffer.structAllowPartialFields  = obj.structAllowPartialFields;
+            newBuffer.structAllowAdditionalFields = obj.structAllowAdditionalFields;
+            
             % copy everything over
             data = obj.peekFromTail(obj.count);
             newBuffer.addAtHead(data);

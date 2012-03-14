@@ -1,7 +1,14 @@
-function signals = GenerateSampleSignals() 
+function signals = GenerateSampleSignals(subject, protocol) 
+
+if ~exist('subject', 'var')
+    subject = 'TestSubject';
+end
+if ~exist('protocol', 'var')
+    protocol = 'TestProtocol';
+end
 
 %% Parameters and generator functions 
-nTrials = 5;
+nTrials = 15;
 
 nEvents = [5 5 10];
 nEventGroups = length(nEvents);
@@ -12,7 +19,7 @@ nAnalogGroups = length(nAnalog);
 nParams = [10 3];
 nParamGroups = length(nParams);
 
-trialLengthRange = [300 1500];
+trialLengthRange = [300 800];
 
 paramNameFn = @(groupIdx, idx) sprintf('param%d', idx);
 paramGroupNameFn = @(groupIdx) sprintf('paramGroup%d', groupIdx);
@@ -33,10 +40,12 @@ sigQ = Queue(false);
 % Generate info control packet
 
 ts = 1;
-ctrl = struct('command', 'SetInfo', 'protocol', 'TestProtocol');
+ctrl = struct('command', 'SetInfo', 'protocol', protocol, 'subject', subject);
 sigQ.add(buildGroup(ts, SignalProcessor.GROUPTYPE_CONTROL, 'control', ctrl));
 
 % Generate trial data
+
+fprintf('Generating sample signal data\n');
 
 for iTrial = 1:nTrials
     textprogressbar(sprintf('Building trial %d', iTrial));
