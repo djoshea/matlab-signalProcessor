@@ -287,7 +287,7 @@ classdef TrialDataSerializer < handle
             end
 
             obj.eventData(idx).groupName = obj.safeGroupName(groupName);
-            obj.eventData(idx).name = obj.safeName(name);
+            obj.eventData(idx).name = obj.safeName(char(name));
             obj.eventData(idx).times = times;
             obj.eventData(idx).tags = tags; 
         end
@@ -305,13 +305,13 @@ classdef TrialDataSerializer < handle
                 % sort these new timestamps into the old, sort values accordingly
                 [times sortIdx] = sort([obj.analogData(idx).times times]);
                 values = [obj.analogData(idx).values values];
-                values = values(sortIdx);
+                values = values(:, sortIdx);
             else
                 idx = length(obj.analogData)+1;
                
                 % sort the timestamps and values
                 [times sortIdx] = sort(times);
-                values = values(sortIdx);
+                values = values(:, sortIdx);
             end
 
             obj.analogData(idx).groupName = obj.safeGroupName(groupName);

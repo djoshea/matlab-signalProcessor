@@ -76,7 +76,7 @@ classdef SignalProcessor < handle
         end
 
         function poll(obj) 
-            obj.receiveNewSignals(obj.loader.poll(obj.maxSignalFilesPerPoll));
+            obj.receiveNewData(obj.loader.poll(obj.maxSignalFilesPerPoll));
         end
 
         function receiveNewData(obj, newData)
@@ -90,7 +90,7 @@ classdef SignalProcessor < handle
             signalsCell = {data.signals}';
             signals = cell2mat(signalsCell);
             
-            obj.receiveNewSignals(obj, signals);
+            obj.receiveNewSignals(signals);
         end
         
         function receiveNewSignals(obj, signals)
@@ -116,12 +116,15 @@ classdef SignalProcessor < handle
                 end
 
                 % get command from control group
-                controlCommand = controlGroup.signals.command;
+                controlCommand = char(controlGroup.signals.command);
+                if(size(controlCommand, 1) > size(controlCommand, 2))
+                    controlCommand = controlCommand';
+                end
 
                 if(strcmpi(controlCommand, 'SetInfo'))
                     % set the info regarding what kind of data is coming in
-                    obj.currentProtocol = controlGroup.signals.protocol;
-                    obj.currentSubject = controlGroup.signals.subject;
+                    obj.currentProtocol = char(makerow(controlGroup.signals.protocol));
+                    obj.currentSubject = char(makerow(controlGroup.signals.subject));
                     signals = leftoverSignals;
                     
                 elseif(strcmp(controlCommand, 'NextTrial'))
